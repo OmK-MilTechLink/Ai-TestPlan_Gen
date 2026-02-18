@@ -59,17 +59,17 @@ Retrieve relevant information with greater accuracy and efficiency.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Knowledge Graph DVP System                            │
+│                        Knowledge Graph DVP System                           │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌───────┐│
-│   │  Ingest  │───▶│  Build   │───▶│  Query   │───▶│   LLM    │───▶│  DVP  ││
-│   │   Data   │    │  Graph   │    │  Graph   │    │ Generate │    │ Excel ││
-│   └──────────┘    └──────────┘    └──────────┘    └──────────┘    └───────┘│
+│                                                                             │
+│   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌───────┐ │
+│   │  Ingest  │─── │  Build   │─── │  Query   │─── │   LLM    │─── │  DVP  │ │
+│   │   Data   │    │  Graph   │    │  Graph   │    │ Generate │    │ Excel │ │
+│   └──────────┘    └──────────┘    └──────────┘    └──────────┘    └───────┘ │
 │        │               │               │               │              │     │
-│   JSON            Nodes &         Hybrid          Test Cases      Excel    │
-│   Documents       Edges           Search          Generated       Output   │
-│                                                                              │
+│    JSON            Nodes &         Hybrid          Test Cases      Excel    │
+│    Documents       Edges           Search          Generated       Output   │
+│                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
