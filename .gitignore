@@ -21,7 +21,6 @@ logs/
 
 # Project Data & Artifacts
 data/
-graph_data/
 chroma_db/
 output/
 temp/
