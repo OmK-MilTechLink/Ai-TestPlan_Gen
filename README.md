@@ -53,6 +53,22 @@ Retrieve relevant information with greater accuracy and efficiency.
 *   **Effective Reranking**: A reranking step evaluates search results with a high-precision model to ensure the most relevant matches are prioritized.
 *   **Delta Indexing**: The AI model only processes new data, avoiding redundant computations and ensuring scalability.
 
+### Enhanced Observability & Logging
+The system now features granular logging for better testing and error diagnosis.
+*   **Detailed Ingestion Logs**: Tracks file processing progress and edge creation statistics.
+*   **Search Transparency**: Logs raw similarity scores, keyword matches, and reranking effects for every query.
+*   **LLM Debugging**: Logs prompt sizes, snippets, and raw responses to help debug context injection and generation issues.
+*   **Document Generation Tracking**: Traces the progress of DVP document creation sheet-by-sheet.
+
+### System Enhancements (v1.1)
+The following improvements have been implemented to ensure stability and integration:
+
+*   **Frontend Integration**: The system is standardized on Port 8080 with full CORS support to ensure seamless connectivity with the frontend portal.
+*   **Context-Aware Generation**: The deterministic generation mode now utilizes the specific context provided by the frontend search, preventing data loss during retrieval.
+*   **Standardized Output**: Test case generation is strictly limited to 15 items per request across all system layers to ensure consistent and manageable reports.
+*   **Chunked Processing**: LLM requests are processed in intelligent batches to optimize context window usage and prevent API rate limits.
+*   **Automatic Index Recovery**: The system automatically detects and rebuilds the semantic search index if it is found to be empty or corrupted on startup.
+
 ---
 
 ## System Architecture

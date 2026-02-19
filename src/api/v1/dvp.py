@@ -57,16 +57,20 @@ class PTPGenerator:
             del self.workbook['Sheet']
 
         # Sheet 1: PTP - Test Matrix
+        logger.debug("Generating Sheet 1: Test Matrix")
         self._create_test_matrix_sheet(component_profile, test_cases)
 
         # Sheet 2: Test Sequence
+        logger.debug("Generating Sheet 2: Test Sequence")
         self._create_test_sequence_sheet(test_cases)
 
         # Sheet 3: Traceability Matrix (if requested)
         if include_traceability:
+            logger.debug("Generating Sheet 3: Traceability Matrix")
             self._create_traceability_sheet(test_cases)
 
         # Sheet 4: Source References
+        logger.debug("Generating Sheet 4: Source References")
         self._create_references_sheet(test_cases)
 
         # Save file
@@ -74,7 +78,8 @@ class PTPGenerator:
         output_path = Path(settings.output_dir) / output_filename
 
         self.workbook.save(str(output_path))
-        logger.info(f"PTP saved to: {output_path}")
+        file_size = output_path.stat().st_size
+        logger.info(f"PTP saved to: {output_path} (Size: {file_size/1024:.2f} KB)")
 
         return str(output_path)
 

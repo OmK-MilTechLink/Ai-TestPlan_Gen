@@ -20,16 +20,16 @@ class Settings(BaseSettings):
     external_api_key: Optional[str] = None
 
     # LLM Configuration
-    llm_provider: str = "openai"  # "openai" or "gemini"
+    llm_provider: str = "gemini"  # "openai" or "gemini"
     openai_api_key: Optional[str] = "not-needed"  # Local model doesn't need key
     openai_api_base: str = "http://localhost:1234/v1"  # Local LLM server
-    openai_model: str = "qwen/qwen3-vl-4b"  # Local Qwen model
+    openai_model: Optional[str] = None  # Local Qwen model
     openai_temperature: float = 0.2
     openai_max_tokens: int = 4096
 
     # Google Gemini Configuration
-    gemini_api_key: Optional[str] = None
-    gemini_model: str = "gemini-3-flash-preview"
+    gemini_api_key: Optional[str] = "AIzaSyD9keKoa2Q6QO4Y8eh3b4ZfeNbkMDZvcJA"
+    gemini_model: str = "gemini-2.5-flash"
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./knowledge_graph.db"
@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     enable_reranking: bool = True
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     initial_retrieval_k: int = 50
-    enable_semantic_search: bool = False
+    enable_semantic_search: bool = True
 
     class Config:
         env_file = ".env"

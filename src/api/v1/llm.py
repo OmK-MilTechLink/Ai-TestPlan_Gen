@@ -118,6 +118,7 @@ Requirements to Test:
 
 Task:
 Generate a list of {len(requirements)} test procedures (one for each requirement) in valid JSON format.
+IMPORTANT: You must generate a test procedure for EVERY requirement provided. Do not skip any. Do not stop after 5.
 The output must be a JSON Array of objects.
 
 Each object must have:
@@ -150,130 +151,144 @@ async def process_llm_generation(job_id: str, request: LLMGenerationRequest):
         client = get_llm_client()
 
         # Prepare batch prompt
-        results_to_process = request.retrieved_context[:10]  # Limit context
+        # Process up to 15 items as requested
+        results_to_process = request.retrieved_context[:15] 
+        logger.info(f"DEBUG: LLM Service received {len(request.retrieved_context)} items. Processing {len(results_to_process)} items.") 
         
-        prompt = generate_batch_test_procedure_prompt(
-            results_to_process,
-            request.component_profile.model_dump()
-        )
+        chunk_size = 5
+        all_test_procedures = []
+        all_acceptance_criteria = []
+        total_tokens = 0
+        
+        import time
 
-        llm_jobs[job_id]['current_step'] = 'Generating test procedures (Batch)...'
-        
-        max_retries = 5
-        retry_delay = 10
-        
-        content = ""
-        tokens = 0
+        # Process in chunks
+        for i in range(0, len(results_to_process), chunk_size):
+            chunk = results_to_process[i:i + chunk_size]
+            current_chunk_index = (i // chunk_size) + 1
+            total_chunks = (len(results_to_process) + chunk_size - 1) // chunk_size
+            
+            logger.info(f"Processing chunk {current_chunk_index}/{total_chunks} ({len(chunk)} requirements)")
+            llm_jobs[job_id]['current_step'] = f'Generating tests (Batch {current_chunk_index}/{total_chunks})...'
+            
+            prompt = generate_batch_test_procedure_prompt(
+                chunk,
+                request.component_profile.model_dump()
+            )
 
-        for attempt in range(max_retries):
-            try:
-                if settings.llm_provider == "gemini":
-                    full_prompt = f"System: You are an expert automotive test engineer. Return a JSON List of objects only.\n\nUser: {prompt}"
+            max_retries = 3
+            retry_delay = 5
+            chunk_content = ""
+            
+            for attempt in range(max_retries):
+                try:
+                    if settings.llm_provider == "gemini":
+                        full_prompt = f"System: You are an expert automotive test engineer. Return a JSON List of objects only.\n\nUser: {prompt}"
+                        
+                        response = client.models.generate_content(
+                            model=settings.gemini_model,
+                            contents=full_prompt,
+                            config={
+                                'temperature': settings.openai_temperature,
+                                'max_output_tokens': 8192, # Sufficient for 5 items
+                            }
+                        )
+                        chunk_content = response.text
+                        total_tokens += getattr(response, 'usage_metadata', None).total_token_count if getattr(response, 'usage_metadata', None) else 0
+                    else:
+                        response = client.chat.completions.create(
+                            model=settings.openai_model,
+                            messages=[
+                                {"role": "system", "content": "You are an expert automotive test engineer. Return a JSON List of objects only."},
+                                {"role": "user", "content": prompt}
+                            ],
+                            temperature=settings.openai_temperature,
+                            max_tokens=8192
+                        )
+                        chunk_content = response.choices[0].message.content
+                        total_tokens += response.usage.total_tokens
                     
-                    response = client.models.generate_content(
-                        model=settings.gemini_model,
-                        contents=full_prompt,
-                        config={
-                            'temperature': settings.openai_temperature,
-                            'max_output_tokens': 8192, # Increased for batch
-                        }
-                    )
-                    content = response.text
-                    tokens = getattr(response, 'usage_metadata', None).total_token_count if getattr(response, 'usage_metadata', None) else 0
+                    break # Success
+                    
+                except Exception as e:
+                    error_str = str(e).lower()
+                    if "429" in error_str or "quota" in error_str or "resource_exhausted" in error_str:
+                        wait_time = retry_delay * (2 ** attempt)
+                        logger.warning(f"Rate limit hit in chunk {current_chunk_index}. Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    logger.error(f"Error generating chunk {current_chunk_index}: {e}")
+                    break # Skip this chunk on non-retriable error
+            
+            # Parse Chunk Response
+            try:
+                import re
+                current_procedures = []
+                json_match = re.search(r'\[[\s\S]*\]', chunk_content)
+                if json_match:
+                    current_procedures = json.loads(json_match.group())
                 else:
-                    response = client.chat.completions.create(
-                        model=settings.openai_model,
-                        messages=[
-                            {"role": "system", "content": "You are an expert automotive test engineer. Return a JSON List of objects only."},
-                            {"role": "user", "content": prompt}
-                        ],
-                        temperature=settings.openai_temperature,
-                        max_tokens=8192
-                    )
-                    content = response.choices[0].message.content
-                    tokens = response.usage.total_tokens
+                    if chunk_content.strip().startswith('{'):
+                         current_procedures = [json.loads(chunk_content)]
                 
-                break
-                
-            except Exception as e:
-                error_str = str(e).lower()
-                if "429" in error_str or "quota" in error_str or "resource_exhausted" in error_str or "503" in error_str:
-                    wait_time = retry_delay * (2 ** attempt)
-                    logger.warning(f"Rate limit hit. Retrying in {wait_time}s...")
-                    import time
-                    time.sleep(wait_time)
-                    continue
-                raise e
+                # Post-process this chunk's procedures
+                for k, proc in enumerate(current_procedures):
+                    # Map back to source using order or ID
+                    # Since we sent a specific chunk, we try to match indices if possible, 
+                    # but rely on 'source_requirement' key from LLM mostly.
+                    
+                    # Ensure traceability exists
+                    if 'traceability' not in proc:
+                         proc['traceability'] = {}
+                    
+                    # Try to find matching source req in this chunk to get metadata
+                    source_req = None
+                    if 'source_requirement' in proc:
+                        # Find by ID
+                        source_req = next((r for r in chunk if r.get('requirement_id') == proc['source_requirement'] or r.get('node_id') == proc['source_requirement']), None)
+                    
+                    if not source_req and k < len(chunk):
+                         # Fallback by index
+                         source_req = chunk[k]
+                         proc['source_requirement'] = source_req.get('requirement_id', source_req.get('node_id', ''))
 
-        # Parse Batch Response
-        try:
-            import re
-            json_match = re.search(r'\[[\s\S]*\]', content)
-            if json_match:
-                test_procedures = json.loads(json_match.group())
-            else:
-                # Try simple JSON load if no list brackets found (maybe it returned a single object wrapped or not)
-                test_procedures = [json.loads(content)] if content.strip().startswith('{') else []
-                if not test_procedures: 
-                     logger.error(f"Could not parse JSON list: {content[:100]}")
+                    if source_req:
+                        proc['confidence_score'] = source_req.get('relevance_score', 0.0)
+                        source_meta = source_req.get('metadata', {})
+                        std = source_meta.get('source_standard', '')
+                        clause = source_meta.get('source_clause', '')
+                        
+                        if not proc['traceability'].get('source_standard'):
+                            proc['traceability']['source_standard'] = std
+                        if not proc['traceability'].get('source_clause'):
+                            proc['traceability']['source_clause'] = clause
+                            
+                        if not proc['traceability'].get('requirement_id'):
+                             proc['traceability']['requirement_id'] = proc.get('source_requirement')
 
-        except json.JSONDecodeError:
-            logger.error(f"JSON parsing failed for batch response")
+                    # Create AC
+                    if 'acceptance_criteria' in proc:
+                        all_acceptance_criteria.append({
+                            'criteria_id': f"AC_{len(all_test_procedures)+1}",
+                            'test_id': f"B{len(all_test_procedures)+1}",
+                            'criteria_text': proc['acceptance_criteria'],
+                            'source_requirement': proc.get('source_requirement', '')
+                        })
+                    
+                    all_test_procedures.append(proc)
+                    
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse JSON for chunk {current_chunk_index}")
 
-        # Post-process to add source info
-        # We need to map back to sources. 
-        # Since LLM output might not preserve order perfectly, we rely on it including the source_requirement ID we asked for.
-        # But for simplicity in this batch, we can assume order or just use the generated content.
-        # Better: Ask LLM to include "source_id" in response.
-        
-        # Enforce source mapping (fallback to sequential if LLM missed IDs)
-        for i, proc in enumerate(test_procedures):
-            if i < len(results_to_process):
-                source = results_to_process[i]
-                proc['source_requirement'] = source.get('requirement_id', source.get('node_id', ''))
-                proc['confidence_score'] = source.get('relevance_score', 0.0)
+            # Small delay between chunks to be nice to API
+            time.sleep(1)
 
-                # Robustness: Ensure traceability exists
-                # Extract from metadata or fallback to parsing ID
-                source_meta = source.get('metadata', {})
-                std = source_meta.get('source_standard', '')
-                clause = source_meta.get('source_clause', '')
-                
-                # Fallback: Parse ID "Standard::Clause::ReqID"
-                if not std and "::" in proc['source_requirement']:
-                    parts = proc['source_requirement'].split("::")
-                    if len(parts) >= 2:
-                        std = parts[0]
-                        clause = parts[1]
-
-                if 'traceability' not in proc:
-                    proc['traceability'] = {
-                        "requirement_id": proc['source_requirement'],
-                        "source_clause": clause,
-                        "source_standard": std
-                    }
-                else:
-                    # If LLM returned partial traceability, fill gaps
-                    if not proc['traceability'].get('source_standard'):
-                        proc['traceability']['source_standard'] = std
-                    if not proc['traceability'].get('source_clause'):
-                        proc['traceability']['source_clause'] = clause
-                
-                # Create AC
-                if 'acceptance_criteria' in proc:
-                    acceptance_criteria.append({
-                        'criteria_id': f"AC_{i+1}",
-                        'test_id': f"B{i+1}",
-                        'criteria_text': proc['acceptance_criteria'],
-                        'source_requirement': proc['source_requirement']
-                    })
-
-        # Update job status
+        # Update job status with aggregated results
         result_payload = {
-            'test_procedures': test_procedures,
-            'acceptance_criteria': acceptance_criteria,
-            'tokens_used': tokens,
-            'procedures_generated': len(test_procedures),
+            'test_procedures': all_test_procedures,
+            'acceptance_criteria': all_acceptance_criteria,
+            'tokens_used': total_tokens,
+            'procedures_generated': len(all_test_procedures),
             'component_profile': request.component_profile.model_dump()
         }
         
@@ -297,7 +312,7 @@ async def process_llm_generation(job_id: str, request: LLMGenerationRequest):
             try:
                 output_path = generator.generate_ptp_docx(
                     component_profile=request.component_profile.model_dump(),
-                    test_cases=test_procedures,
+                    test_cases=all_test_procedures,
                     include_traceability=request.include_traceability
                 )
                 
@@ -447,34 +462,39 @@ async def process_deterministic_generation(job_id: str, request: LLMGenerationRe
         llm_jobs[job_id]['current_step'] = 'Retrieving requirements'
         llm_jobs[job_id]['progress_percent'] = 10.0
 
-        # 1. Retrieve Context from Knowledge Graph
-        from src.api.v1.retrieval import query_knowledge_graph
-        
-        if request.component_profile.test_categories:
-            cats = ", ".join(request.component_profile.test_categories)
-            query_str = f"Test requirements for {request.component_profile.name} {request.component_profile.type}. Categories: {cats}."
+        # 1. Use existing context if provided, else retrieve
+        results = []
+        if request.retrieved_context:
+            logger.info(f"Using {len(request.retrieved_context)} items from provided context.")
+            results = request.retrieved_context
         else:
-            query_str = f"Test requirements for {request.component_profile.name} {request.component_profile.type}."
+            from src.api.v1.retrieval import query_knowledge_graph
+            
+            if request.component_profile.test_categories:
+                cats = ", ".join(request.component_profile.test_categories)
+                query_str = f"Test requirements for {request.component_profile.name} {request.component_profile.type}. Categories: {cats}."
+            else:
+                query_str = f"Test requirements for {request.component_profile.name} {request.component_profile.type}."
 
-        query_request = RetrievalQueryRequest(
-            query_text=query_str,
-            n_results=100, # Get more candidates
-            min_confidence=0.4, # Lower threshold for deterministic
-            include_metadata=True,
-            component_profile=request.component_profile.model_dump()
-        )
+            query_request = RetrievalQueryRequest(
+                query_text=query_str,
+                n_results=100, 
+                min_confidence=0.4, 
+                include_metadata=True,
+                component_profile=request.component_profile.model_dump()
+            )
 
-        response = await query_knowledge_graph(query_request)
-        results = response.results
-        
+            response = await query_knowledge_graph(query_request)
+            results = response.results
+            
         if not results:
-            logger.warning("No relevant nodes found in Knowledge Graph.")
+            logger.warning("No relevant nodes found in Knowledge Graph or provided context.")
             llm_jobs[job_id]['status'] = JobStatus.FAILED
-            llm_jobs[job_id]['error'] = "No relevant requirements found in Knowledge Graph"
+            llm_jobs[job_id]['error'] = "No relevant requirements found"
             return
 
         # 2. Limit results
-        results_to_process = results[:20]  # Process top 20 verified results
+        results_to_process = results[:15]  # Process top 15 verified results
         
         test_procedures = []
         acceptance_criteria = []

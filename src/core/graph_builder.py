@@ -59,7 +59,9 @@ class KnowledgeGraphBuilder:
             return stats
 
         documents = []
-        for json_file in new_files:
+        for idx, json_file in enumerate(new_files):
+            if idx % 100 == 0:
+                logger.info(f"Processing file {idx}/{len(new_files)}: {json_file.name}")
             try:
                 with open(json_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
@@ -96,6 +98,7 @@ class KnowledgeGraphBuilder:
         stats['new_files_processed'] = len(new_files)
 
         logger.info(f"Graph updated: {stats['nodes']} nodes, {stats['edges']} edges")
+        logger.debug(f"Edge types broken down: {self._get_edge_type_counts()}")
 
         return {
             'nodes_created': stats['nodes'],
@@ -433,3 +436,13 @@ class KnowledgeGraphBuilder:
             json.dump(graph_data, f, indent=2)
 
         logger.info(f"Graph exported to JSON: {output_path}")
+
+    def _get_edge_type_counts(self) -> Dict[str, int]:
+        """
+        Helper to get counts of edges by type
+        """
+        counts = {}
+        for _, _, data in self.graph.edges(data=True):
+            edge_type = data.get('edge_type', 'unknown')
+            counts[edge_type] = counts.get(edge_type, 0) + 1
+        return counts

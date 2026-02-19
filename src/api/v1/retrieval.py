@@ -73,7 +73,7 @@ async def query_knowledge_graph(request: RetrievalQueryRequest):
         if component.specifications:
             query_text += f"Specs: {', '.join([f'{k}={v}' for k,v in component.specifications.items()])}"
             
-        logger.info(f"Semantic Query: {query_text}")
+        logger.info(f"Semantic Query: {query_text} (Max Results: {request.max_results})")
 
         # Execute Semantic Search
         semantic_results = {}
@@ -87,7 +87,7 @@ async def query_knowledge_graph(request: RetrievalQueryRequest):
             except Exception as e:
                 logger.error(f"Semantic search failed: {e}")
         else:
-            logger.warning("Search engine not initialized. Skipping semantic search.")
+            logger.error("Search engine is NONE. Semantic search skipped. Check if index is built.")
 
         # 2. Keyword Search Construction
         search_terms = []
@@ -119,12 +119,23 @@ async def query_knowledge_graph(request: RetrievalQueryRequest):
         # Helper to get existing entry or create new
         def get_or_create_result(node_id, node_data):
             if node_id not in combined_results:
+                # Fetch parent context
+                parent_id = node_data.get('parent_clause')
+                parent_title = ""
+                if parent_id and graph_builder.graph.has_node(parent_id):
+                    parent_node = graph_builder.graph.nodes[parent_id]
+                    parent_title = parent_node.get('title', str(parent_id))
+                
+                # Construct context-rich text
+                context_text = f"{parent_title}: {node_data.get('text', '')}" if parent_title else node_data.get('text', '')
+
                 combined_results[node_id] = {
                     'node_id': node_id,
                     'node_type': 'Requirement',
                     'requirement_id': node_id,
                     'requirement_type': node_data.get('requirement_type', 'mandatory'),
                     'text': node_data.get('text', ''),
+                    'context_text': context_text, # For reranking
                     'keyword': node_data.get('keyword', 'shall'),
                     'parent_clause': node_data.get('parent_clause', ''),
                     'semantic_score': 0.0,
@@ -176,6 +187,7 @@ async def query_knowledge_graph(request: RetrievalQueryRequest):
                 
                 res['keyword_score'] = k_score
                 res['matched_terms'] = curr_matched_terms
+                logger.debug(f"Keyword match for {node_id}: {curr_matched_terms} (Score: {k_score:.2f})")
 
         # 4. Final Scoring and Ranking
         final_list = []
@@ -185,18 +197,25 @@ async def query_knowledge_graph(request: RetrievalQueryRequest):
             
             final_score = 0.0
             
+            # IMPROVED HYBRID FORMULA
+            # Allow strong semantic matches to pass even without keywords
             if s_score > 0 and k_score > 0:
-                final_score = (0.6 * s_score) + (0.4 * k_score) + 0.1
+                final_score = (0.7 * s_score) + (0.3 * k_score)
             elif s_score > 0:
-                final_score = s_score * 0.9 
+                final_score = s_score  # Don't penalize pure semantic matches
             elif k_score > 0:
-                final_score = k_score * 0.8
+                final_score = k_score * 0.5 # Penalize pure keyword matches (often noisy)
             
             final_score = min(1.0, final_score)
             res['relevance_score'] = round(final_score, 3)
             
             if final_score >= request.min_confidence:
                 final_list.append(res)
+
+        # Log combined scores for top results
+        top_candidates = sorted(combined_results.values(), key=lambda x: x['relevance_score'], reverse=True)[:5]
+        for c in top_candidates:
+            logger.debug(f"Candidate {c['node_id']}: Final={c['relevance_score']:.3f} (Sem={c['semantic_score']:.3f}, Key={c['keyword_score']:.3f})")
 
         # Initial Sort by hybrid score
         final_list.sort(key=lambda x: x['relevance_score'], reverse=True)
@@ -212,7 +231,8 @@ async def query_knowledge_graph(request: RetrievalQueryRequest):
             
             if candidates_to_rerank:
                 logger.info(f"Reranking {len(candidates_to_rerank)} candidates (All above threshold {request.min_confidence})...")
-                candidate_texts = [c['text'] for c in candidates_to_rerank]
+                # Use CONTEXT text for reranking
+                candidate_texts = [c.get('context_text', c['text']) for c in candidates_to_rerank]
                 
                 # Get indices of best documents
                 ranked_indices = search_engine.rerank(query_text, candidate_texts, top_k=len(candidates_to_rerank))

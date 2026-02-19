@@ -86,7 +86,7 @@ class RetrievalQueryRequest(BaseModel):
     component_profile: ComponentProfileRequest
     retrieval_method: str = Field(default="hybrid", description="Search method: semantic, graph, hybrid")
     max_results: int = Field(default=15, ge=1, le=200)
-    min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    min_confidence: float = Field(default=0.4, ge=0.0, le=1.0)
     include_hierarchy: bool = Field(default=True)
     include_references: bool = Field(default=True)
 
@@ -104,7 +104,7 @@ class RetrievalQueryRequest(BaseModel):
                     "quantity_per_test": {"RH": 3, "LH": 3}
                 },
                 "retrieval_method": "hybrid",
-                "max_results": 50,
+                "max_results": 15,
                 "min_confidence": 0.7
             }
         }

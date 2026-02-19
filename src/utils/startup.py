@@ -65,8 +65,19 @@ def run_startup_automation():
             
             # Check if we need full index or incremental
             new_files_count = stats.get('new_files_processed', 0)
-            if existing_graph is None:
-                # Fresh build
+            
+            # Check if index is actually populated
+            is_index_empty = False
+            try:
+                if engine.clause_collection.count() == 0:
+                    is_index_empty = True
+            except:
+                is_index_empty = True
+
+            if existing_graph is None or is_index_empty:
+                # Fresh build or Re-index needed
+                if is_index_empty:
+                    logger.info("Semantic index is empty. Forcing full index build.")
                 engine.index_graph(builder.graph)
             elif new_files_count > 0:
                 # Incremental update

@@ -40,8 +40,14 @@ class SemanticSearchEngine:
         self.chroma_client = chromadb.PersistentClient(path=vector_db_path)
 
         # Collections
-        self.clause_collection = None
-        self.requirement_collection = None
+        try:
+            self.clause_collection = self.chroma_client.get_collection("clauses")
+            self.requirement_collection = self.chroma_client.get_collection("requirements")
+            logger.info(f"Loaded existing collections. Clauses: {self.clause_collection.count()}, Requirements: {self.requirement_collection.count()}")
+        except Exception:
+            self.clause_collection = None
+            self.requirement_collection = None
+            logger.info("No existing collections found.")
 
     def _set_determinism(self):
         """Set random seeds for reproducibility"""
@@ -314,12 +320,17 @@ class SemanticSearchEngine:
         formatted_results = []
         if results['ids']:
             for idx, node_id in enumerate(results['ids'][0]):
+                score = 1.0 - results['distances'][0][idx]
                 formatted_results.append({
                     'node_id': node_id,
-                    'relevance_score': 1.0 - results['distances'][0][idx],
+                    'relevance_score': score,
                     'metadata': results['metadatas'][0][idx],
                     'text': results['documents'][0][idx]
                 })
+
+            # Log top 5 raw scores for debugging
+            top_scores = [f"{r['node_id']}: {r['relevance_score']:.3f}" for r in formatted_results[:5]]
+            logger.debug(f"Top 5 raw semantic scores: {top_scores}")
 
         return formatted_results
 
@@ -340,6 +351,9 @@ class SemanticSearchEngine:
             
             # Sort indices by score desc
             sorted_indices = np.argsort(scores)[::-1]
+            
+            # Log reranking effect
+            logger.debug(f"Reranking top {top_k} candidates. Top scores before: {scores[:5] if len(scores) > 0 else 'None'}")
             
             return sorted_indices[:top_k].tolist()
         except Exception as e:
