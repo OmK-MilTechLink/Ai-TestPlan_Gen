@@ -21,10 +21,11 @@ logs/
 
 # Project Data & Artifacts
 data/
-chroma_db/
-output/
-temp/
-uploads/
+chroma_db/*
+graph_data/*
+output/*
+temp/*
+uploads/*
 
 # Generated Reports
 accuracy_report.json
