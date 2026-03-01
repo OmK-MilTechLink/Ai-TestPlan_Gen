@@ -68,8 +68,10 @@ Component Under Test:
 
 Requirement Information:
 {json.dumps(requirement, indent=2)}
-
-Based on this requirement, generate a detailed test procedure in the following JSON format:
+Task:
+1. Carefully compare the Component Specifications with the given Requirement Information.
+2. Based on this comparison, determine how relevant the requirement is to the component (High, Medium, or Low). Provide this score and a one-line justification inside the 'traceability' object.
+3. Based on this requirement, generate a detailed test procedure in the following JSON format:
 {{
     "test_name": "Brief descriptive name (e.g., Operation at Low Temperature)",
     "test_description": "1-2 sentence description",
@@ -83,11 +85,13 @@ Based on this requirement, generate a detailed test procedure in the following J
     "operating_mode": "Operating mode description if applicable",
     "acceptance_criteria": "Clear pass/fail criteria based on requirement",
     "estimated_days": 5,
-    "traceability": {{
+    "traceability": {
         "requirement_id": "{requirement.get('requirement_id', '')}",
         "source_clause": "{requirement.get('clause_id', '')}",
-        "source_standard": "{requirement.get('document_id', '')}"
-    }}
+        "source_standard": "{requirement.get('document_id', '')}",
+        "confidence_reasoning": "A one-line explanation of why this requirement is relevant to the component",
+        "relevance_score": "High, Medium, or Low"
+    }
 }}
 
 Generate a realistic and detailed test procedure that follows automotive industry standards."""
@@ -117,9 +121,10 @@ Requirements to Test:
 {compiled_requirements}
 
 Task:
-Generate a list of {len(requirements)} test procedures (one for each requirement) in valid JSON format.
-IMPORTANT: You must generate a test procedure for EVERY requirement provided. Do not skip any. Do not stop after 5.
-The output must be a JSON Array of objects.
+1. Generate a list of {len(requirements)} test procedures (one for each requirement) in valid JSON format.
+2. Carefully compare the Component Specs with each Requirement. Based on this comparison, assign a "relevance_score" (High, Medium, or Low) evaluating the requirement's applicability to the component's parameters.
+3. IMPORTANT: You must generate a test procedure for EVERY requirement provided. Do not skip any.
+4. The output must be a JSON Array of objects.
 
 Each object must have:
 - "test_name"
@@ -127,7 +132,7 @@ Each object must have:
 - "detailed_procedure" (List of strings)
 - "acceptance_criteria"
 - "source_requirement" (Must match the ID provided above)
-- "traceability": {{ "requirement_id": "...", "source_standard": "..." }}
+- "traceability": {{ "requirement_id": "...", "source_standard": "...", "confidence_reasoning": "One line explanation of relevance", "relevance_score": "High/Medium/Low" }}
 
 Example Response Format:
 [
@@ -265,6 +270,8 @@ async def process_llm_generation(job_id: str, request: LLMGenerationRequest):
                             
                         if not proc['traceability'].get('requirement_id'):
                              proc['traceability']['requirement_id'] = proc.get('source_requirement')
+                        if not proc['traceability'].get('confidence_reasoning'):
+                             proc['traceability']['confidence_reasoning'] = "Relevant requirement mapped from Knowledge Graph."
 
                     # Create AC
                     if 'acceptance_criteria' in proc:

@@ -203,9 +203,16 @@ class PTPGenerator:
             document.add_heading('3. Requirement Traceability', level=1)
             document.add_paragraph("This section maps test cases to source requirements.")
             
-            headers = ['ID', 'Requirement ID', 'Source Standard']
+            headers = ['ID', 'Requirement ID', 'Source Standard', 'Graph Node Confidence', 'Relevance Score']
             table = document.add_table(rows=1, cols=len(headers))
             table.style = 'Table Grid'
+            
+            # Exact column widths
+            table.columns[0].width = Inches(0.5)
+            table.columns[1].width = Inches(1.3)
+            table.columns[2].width = Inches(1.7)
+            table.columns[3].width = Inches(2.0)
+            table.columns[4].width = Inches(1.0)
             
             hdr_cells = table.rows[0].cells
             for i, header in enumerate(headers):
@@ -228,6 +235,8 @@ class PTPGenerator:
                 
                 source = f"{traceability.get('source_standard', '')} {traceability.get('source_clause', '')}"
                 row_cells[2].text = source.strip()
+                row_cells[3].text = str(traceability.get('confidence_reasoning', 'N/A'))
+                row_cells[4].text = str(traceability.get('relevance_score', 'N/A'))
                 
         # 4. References
         document.add_heading('4. References', level=1)
