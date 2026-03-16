@@ -7,11 +7,15 @@ from typing import List, Dict, Any
 import uuid
 from datetime import datetime
 from pathlib import Path
+from src.config import settings
+import json
+import os
 
 from src.models.api_models import (
     RetrievalQueryRequest,
     RetrievalResponse
 )
+from src.config import settings
 from loguru import logger
 
 router = APIRouter()
@@ -34,7 +38,6 @@ async def query_knowledge_graph(request: RetrievalQueryRequest):
     if not graph_builder:
         # Try to auto-load if not loaded (basic recovery)
         try:
-            import os
             # Find latest graph
             graph_dir = Path("graph_data")
             if graph_dir.exists():
@@ -141,8 +144,33 @@ async def query_knowledge_graph(request: RetrievalQueryRequest):
                     'semantic_score': 0.0,
                     'keyword_score': 0.0,
                     'matched_terms': [],
-                    'retrieval_method': 'hybrid'
+                    'retrieval_method': 'hybrid',
+                    'figures': []
                 }
+                
+                # Attach figures from parent clause
+                if parent_id and graph_builder.graph.has_node(parent_id):
+                    parent_node = graph_builder.graph.nodes[parent_id]
+                    figs = parent_node.get('figures', [])
+                    
+                    # IF figures missing in memory graph but chunk file might have them, load it
+                    if not figs:
+                        source_file = parent_node.get('source_file', '')
+                        if source_file:
+                            
+                            # Resolve actual path
+                            json_path = settings.abs_data_dir / source_file if source_file.startswith('output_json_chunk') else Path(settings.input_json_dir) / os.path.basename(source_file)
+                            
+                            if json_path.exists():
+                                try:
+                                    with open(json_path, 'r', encoding='utf-8') as f:
+                                        chunk_data = json.load(f)
+                                        figs = chunk_data.get('figures', [])
+                                except Exception:
+                                    pass
+                                    
+                    combined_results[node_id]['figures'] = figs
+                    
             return combined_results[node_id]
 
         # Process Semantic Results
@@ -218,10 +246,7 @@ async def query_knowledge_graph(request: RetrievalQueryRequest):
             logger.debug(f"Candidate {c['node_id']}: Final={c['relevance_score']:.3f} (Sem={c['semantic_score']:.3f}, Key={c['keyword_score']:.3f})")
 
         # Initial Sort by hybrid score
-        final_list.sort(key=lambda x: x['relevance_score'], reverse=True)
-        
-        # Reranking Step
-        from src.config import settings
+        final_list.sort(key=lambda x: x['relevance_score'], reverse=True)        
         reranked = False
         
         if settings.enable_reranking and search_engine and search_engine.reranker:

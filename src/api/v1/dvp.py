@@ -138,12 +138,10 @@ class PTPGenerator:
             if criteria:
                 rows_data.append(("Acceptance Criteria", str(criteria)))
 
-            # Traceability
-            traceability = tc_data.get('traceability', {})
-            if traceability:
-                source_std = traceability.get('source_standard', '')
-                if source_std:
-                    rows_data.append(("Source Standard", str(source_std)))
+            # Add Images row if figures exist
+            figures = tc_data.get('figures', [])
+            if figures:
+                rows_data.append(("Images", "figures_placeholder"))
 
             # Build table
             table = doc.add_table(rows=len(rows_data), cols=2)
@@ -156,7 +154,31 @@ class PTPGenerator:
                 cell_value = table.rows[row_idx].cells[1]
                 _set_cell_text(cell_label, label, bold=True, size=10)
                 _shade_cell(cell_label, 'D9E2F3')
-                _set_cell_text(cell_value, value, bold=False, size=10)
+                
+                if label == "Images":
+                    cell_value.text = "" # Clear placeholder
+                    for fig in figures:
+                        # Robust path resolution
+                        rel_path = fig.get('path', '')
+                        fig_path = settings.abs_data_dir / rel_path
+                        if not fig_path.exists():
+                             fig_path = Path(settings.data_dir) / rel_path
+                        
+                        if fig_path.exists():
+                            p = cell_value.add_paragraph()
+                            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            run = p.add_run()
+                            run.add_picture(str(fig_path), width=Inches(4.0)) # Slightly smaller for table
+                            caption = fig.get('caption', '') or f"Figure {fig.get('number', '')}"
+                            cap_para = cell_value.add_paragraph(caption)
+                            cap_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            for run in cap_para.runs:
+                                run.font.size = Pt(8)
+                                run.font.italic = True
+                        else:
+                            cell_value.add_paragraph(f"[Image not found: {rel_path}]")
+                else:
+                    _set_cell_text(cell_value, value, bold=False, size=10)
 
             doc.add_paragraph("")
 
@@ -756,7 +778,9 @@ class PTPGenerator:
                 if qty:
                     rows.append(("Number of Samples", str(qty)))
 
-                rows.append(("Comments", str(tc.get('comments', ''))))
+                figures = tc.get('figures', [])
+                if figures:
+                    rows.append(("Images", "figures_placeholder"))
 
                 tbl = document.add_table(rows=len(rows), cols=2)
                 tbl.style = 'Table Grid'
@@ -766,7 +790,33 @@ class PTPGenerator:
                 for ri, (label, value) in enumerate(rows):
                     _cell(tbl.rows[ri].cells[0], label, bold=True, size=10)
                     _shade(tbl.rows[ri].cells[0], LABEL_BG)
-                    _cell(tbl.rows[ri].cells[1], value, size=10)
+                    
+                    if label == "Images":
+                        cell_value = tbl.rows[ri].cells[1]
+                        cell_value.text = "" # Clear placeholder
+                        for fig in figures:
+                            rel_path = fig.get('path', '')
+                            fig_path = settings.abs_data_dir / rel_path
+                            if not fig_path.exists():
+                                fig_path = Path(settings.data_dir) / rel_path
+                            if not fig_path.exists() and rel_path.startswith('data/'):
+                                fig_path = settings.abs_data_dir / rel_path[5:]
+                            
+                            if fig_path.exists():
+                                p = cell_value.add_paragraph()
+                                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                run = p.add_run()
+                                run.add_picture(str(fig_path), width=Inches(4.0))
+                                caption = fig.get('caption', '') or f"Figure {fig.get('number', '')}"
+                                cap_p = cell_value.add_paragraph(caption)
+                                cap_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                                for run in cap_p.runs:
+                                    run.font.size = Pt(8)
+                                    run.font.italic = True
+                            else:
+                                cell_value.add_paragraph(f"[Image not found: {rel_path}]")
+                    else:
+                        _cell(tbl.rows[ri].cells[1], value, size=10)
 
                 document.add_paragraph("")
 

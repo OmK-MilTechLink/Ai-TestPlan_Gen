@@ -258,6 +258,7 @@ async def process_llm_generation(job_id: str, request: LLMGenerationRequest):
                          proc['source_requirement'] = source_req.get('requirement_id', source_req.get('node_id', ''))
 
                     if source_req:
+                        proc['figures'] = source_req.get('figures', [])
                         proc['confidence_score'] = source_req.get('relevance_score', 0.0)
                         source_meta = source_req.get('metadata', {})
                         std = source_meta.get('source_standard', '')
@@ -545,7 +546,8 @@ async def process_deterministic_generation(job_id: str, request: LLMGenerationRe
                     "requirement_id": req_id,
                     "source_clause": clause,
                     "source_standard": std
-                }
+                },
+                "figures": result.get('figures', [])
             }
             
             test_procedures.append(procedure_data)

@@ -3,6 +3,7 @@ Configuration management for the Knowledge Graph API
 """
 from pydantic_settings import BaseSettings
 from typing import Optional
+from pathlib import Path
 import os
 
 class Settings(BaseSettings):
@@ -20,7 +21,7 @@ class Settings(BaseSettings):
     external_api_key: Optional[str] = None
 
     # LLM Configuration
-    llm_provider: str = "openai"  # "openai" or "gemini"
+    llm_provider: str = "gemini"  # "openai" or "gemini"
     openai_api_key: Optional[str] = ""  # Local model doesn't need key
     openai_api_base: str = ""  # Any LLM server
     openai_model: Optional[str] = ""  # Any Local or API model
@@ -28,8 +29,8 @@ class Settings(BaseSettings):
     openai_max_tokens: int = 4096
 
     # Google Gemini Configuration
-    gemini_api_key: Optional[str] = ""
-    gemini_model: str = ""
+    gemini_api_key: Optional[str] = "AIzaSyC-kN-Ah76Vx_E9HKrd3JCGVE1wVrkdI2M"
+    gemini_model: str = "gemini-2.5-flash"
 
     # Database
     database_url: str = "sqlite+aiosqlite:///./knowledge_graph.db"
@@ -37,12 +38,31 @@ class Settings(BaseSettings):
     vector_db_path: str = "./chroma_db"
 
     # Storage Paths
+    @property
+    def project_root(self) -> Path:
+        return Path(__file__).resolve().parent.parent
+
     upload_dir: str = "./uploads"
     output_dir: str = "./output"
     temp_dir: str = "./temp"
     data_dir: str = "./data"
     input_json_dir: str = "./data/output_json_chunk"
     input_images_dir: str = "./data/output_images"
+
+    def get_abs_path(self, relative_path: str) -> str:
+        """Get absolute path relative to project root"""
+        path = Path(relative_path)
+        if path.is_absolute():
+            return str(path)
+        return str(self.project_root / path)
+
+    @property
+    def abs_data_dir(self) -> Path:
+        return self.project_root / self.data_dir.lstrip("./")
+
+    @property
+    def abs_output_dir(self) -> Path:
+        return self.project_root / self.output_dir.lstrip("./")
 
     # Logging
     log_level: str = "INFO"
