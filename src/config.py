@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     openai_max_tokens: int = 4096
 
     # Google Gemini Configuration
-    gemini_api_key: Optional[str] = "AIzaSyC-kN-Ah76Vx_E9HKrd3JCGVE1wVrkdI2M"
+    gemini_api_key: Optional[str] = ""
     gemini_model: str = "gemini-2.5-flash"
 
     # Database
