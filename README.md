@@ -1,10 +1,37 @@
 # Knowledge Graph DVP Generation System
 
-A complete end-to-end API system for automatically generating Design Verification Plans (DVP) from standards documents using knowledge graphs. Built with FastAPI, NetworkX, and modern web technologies.
+A complete end-to-end API system for automatically generating Design Verification Plans (DVP) from standards documents using knowledge graphs. This system maps document structures (Standards -> Sections -> Requirements) and uses AI to generate professional test procedures and reports.
 
 ---
 
-## Table of Contents
+## 🚀 Version 2.0: Professionalization & Optimization
+
+This system has been recently upgraded to Version 2.0. This update focuses on making the code cleaner, more professional, and easier to integrate into other platforms.
+
+### 🧹 Major Architectural Changes
+*   **Modular API Design**: The system was split into specialized routes (`ingest`, `graph`, `retrieval`, `llm`, `dvp`). This makes the code professionally organized and allows each part to be maintained or upgraded independently.
+*   **Unified Job Management**: A new `JobManager` was created to track the progress of long-running tasks. It ensures the system never "hangs" and provides real-time status updates through a single, consistent interface.
+*   **Synchronous API Support**: Added a `sync` option to the generation APIs so they can return results immediately. This ensures the frontend receives data instantly without needing to poll for completion.
+*   **Intelligent KG Versioning**: The Knowledge Graph now saves versioned files (`startup_v1.pkl`, `v2.pkl`) and uses a pointer to load the latest one. This prevent data loss and allows you to track changes over time.
+*   **Global API Observability**: A background middleware now logs every API call, including client IP, latency (ms), and status. This makes performance tuning and debugging significantly faster.
+*   **Config Hardening**: Sensitive settings like API keys were moved out of the code and into a private `.env` file. This follows security best practices and makes it easy to switch between local and production settings.
+
+### 🐛 Key Bugs Fixed
+*   **Pydantic Validation**: Fixed a crash where the server failed to respond because a required "timestamp" field was missing. All API responses are now strictly validated and consistent.
+*   **Frontend Generation Failure**: Fixed an issue where the frontend stopped working because it received "Pending" instead of actual data. Synchronous mode now ensures immediate delivery of documents.
+*   **Redundant KG Rebuilds**: Fixed a bug where the system rebuilt the entire graph every time it started. It now uses a smart manifest to skip files that haven't changed, saving processing time.
+*   **Startup Logic Errors**: Fixed a code error that accidentally skipped the search index update and caused redundant graph saves. Re-indexing now only happens when actually needed.
+*   **Manifest Key Collision**: Fixed a bug where files in different folders with the same filename confused the system. It now uses full relative paths to uniquely identify every single file.
+*   **Ingest Router Duplication**: Removed duplicate router declarations that caused instability. The ingestion process is now more stable and resource-efficient.
+
+### 📂 New Professional Utilities
+*   **`src/utils/job_manager.py`**: A new central controller that tracks the state (Pending, Processing, Completed) of every background task.
+*   **`src/utils/graph_loader.py`**: A shared tool that automatically finds and loads the most recent version of the Knowledge Graph based on the versioning pointer.
+*   **`.env` & `.env.example`**: Standardized configuration files that keep secrets safe and allow for environment-specific customization without touching code.
+
+---
+
+## 📋 Table of Contents
 
 - [Features](#features)
 - [New Capabilities](#new-capabilities)
@@ -18,60 +45,44 @@ A complete end-to-end API system for automatically generating Design Verificatio
 - [Local LLM Setup](#local-llm-setup-optional)
 - [Troubleshooting](#troubleshooting)
 - [Project Structure](#project-structure)
+- [Detailed Graph Information](#detailed-graph-information)
+- [Test Categories](#test-categories)
+- [Generated DVP Structure](#generated-dvp-structure)
 
 ---
 
-## Features
+## 🛠 Features
 
-- **Knowledge Graph Construction**: Build multi-layer graphs from standards documents (Standards -> Clauses -> Requirements).
-- **Interactive Query UI**: Web-based interface for querying and exploring the knowledge graph.
-- **Hybrid Search**: Combines Keyword Search + Semantic Vector Search + Cross-Encoder Reranking for high-precision retrieval.
-- **DVP Excel Generation**: Automated generation of Design Verification Plans with traceability.
-- **Interactive Visualization**: D3.js-powered graph visualization.
-- **Local LLM Support**: Compatible with LM Studio and other OpenAI-compatible APIs.
-- **Full Traceability**: Complete requirement-to-test mapping.
+- **Knowledge Graph Construction**: Builds a multi-layer map of standards (Standards -> Chapters -> Requirements).
+- **Interactive Query UI**: A web-based interface to search, browse, and export the knowledge graph.
+- **Hybrid Search**: Combines keyword matching with AI-powered semantic vector search for high-precision results.
+- **DVP Excel Generation**: Automates the creation of Design Verification Plans with full traceability.
+- **Interactive Visualization**: Explore document connections visually using a D3.js powered graph view.
+- **Traceability Matrix**: Automatically links every generated test case back to its source requirement.
+- **Local LLM Support**: Compatible with local AI models (via LM Studio) and external OpenAI-compatible APIs.
 
 ---
 
-## New Capabilities
+## 💡 New Capabilities (v1.1 & v2.0)
 
-We have recently upgraded the system with optimization features designed to improve performance and usability.
-
-### Instant Startup with Incremental Updates
-The system now avoids rebuilding the entire graph upon every restart.
-*   **Incremental Processing**: The system tracks processed files and only adds new ones.
-*   **Fast Restarts**: Startup time is significantly reduced as it loads the existing graph from disk.
-*   **Benefit**: Improved development workflow with faster iteration times.
+### Instant Startup
+The system loads the existing graph from disk on startup. It only processes new files added to the data folder, making restarts extremely fast.
 
 ### Intelligent Data Ingestion
-The data handling process has been improved for reliability.
-*   **Duplicate Prevention**: Automatically detects previously ingested files to prevent duplicate records.
-*   **Seamless Expansion**: New files added to the data folder are integrated into the existing graph without requiring a full rebuild.
+Automatically detects and ignores duplicate files. You can drop new documents into the data folder anytime, and the system integrates them incrementally.
 
 ### Optimized AI Search
-Retrieve relevant information with greater accuracy and efficiency.
-*   **Effective Reranking**: A reranking step evaluates search results with a high-precision model to ensure the most relevant matches are prioritized.
-*   **Delta Indexing**: The AI model only processes new data, avoiding redundant computations and ensuring scalability.
+Uses an "effective reranking" step. Search results are evaluated by a high-precision AI model to ensure the most relevant information is always prioritized.
 
-### Enhanced Observability & Logging
-The system now features granular logging for better testing and error diagnosis.
-*   **Detailed Ingestion Logs**: Tracks file processing progress and edge creation statistics.
-*   **Search Transparency**: Logs raw similarity scores, keyword matches, and reranking effects for every query.
-*   **LLM Debugging**: Logs prompt sizes, snippets, and raw responses to help debug context injection and generation issues.
-*   **Document Generation Tracking**: Traces the progress of DVP document creation sheet-by-sheet.
-
-### System Enhancements (v1.1)
-The following improvements have been implemented to ensure stability and integration:
-
-*   **Frontend Integration**: The system is standardized on Port 8080 with full CORS support to ensure seamless connectivity with the frontend portal.
-*   **Context-Aware Generation**: The deterministic generation mode now utilizes the specific context provided by the frontend search, preventing data loss during retrieval.
-*   **Standardized Output**: Test case generation is strictly limited to 15 items per request across all system layers to ensure consistent and manageable reports.
-*   **Chunked Processing**: LLM requests are processed in intelligent batches to optimize context window usage and prevent API rate limits.
-*   **Automatic Index Recovery**: The system automatically detects and rebuilds the semantic search index if it is found to be empty or corrupted on startup.
+### Enhanced Observability
+Includes deep logging for all system layers:
+- **Search Transparency**: Logs raw similarity scores and reranking effects for every query.
+- **LLM Debugging**: Tracks prompt sizes, snippets, and raw responses to ensure generation quality.
+- **Document Tracking**: Traces the progress of Excel/Word generation sheet-by-sheet.
 
 ---
 
-## System Architecture
+## 🏗 System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -93,374 +104,212 @@ The following improvements have been implemented to ensure stability and integra
 
 | Step | Endpoint | Description |
 |------|----------|-------------|
-| 1 | `POST /api/v1/ingest/local` | Load standards from `./data` directory |
-| 2 | `POST /api/v1/graph/build` | Build knowledge graph with nodes & edges |
-| 3 | `POST /api/v1/retrieval/query` | Query for relevant requirements |
-| 4 | `POST /api/v1/llm/generate` | Generate test procedures (optional) |
-| 5 | `POST /api/v1/dvp/generate` | Create Excel DVP document |
-| 6 | `GET /api/v1/dvp/download/{id}` | Download generated DVP |
+| 1 | `POST /api/v1/ingest/local` | Reads standards documents from the `./data` folder. |
+| 2 | `POST /api/v1/graph/build` | Builds the knowledge graph with nodes and links. |
+| 3 | `POST /api/v1/retrieval/query` | Searches the graph for relevant requirements. |
+| 4 | `POST /api/v1/llm/generate` | Generates detailed test procedures using AI. |
+| 5 | `POST /api/v1/dvp/generate` | Exports everything to a professional Excel/Word file. |
+| 6 | `GET /api/v1/dvp/download/{id}`| Downloads the final generated DVP document. |
 
 ---
 
-## Prerequisites
+## 🏁 Prerequisites
 
 | Requirement | Version | Notes |
 |-------------|---------|-------|
-| Python | 3.10+ | Required |
-| RAM | 8GB+ | Recommended for graph operations |
-| Disk Space | 2GB+ | For data and generated files |
-| LLM (Optional) | - | OpenAI API or Local LLM (LM Studio) |
+| Python | 3.10+ | Required for modern library support. |
+| RAM | 8GB+ | Recommended for handling large documents. |
+| Disk Space | 2GB+ | Space for document data and saved graph files. |
+| LLM (Optional) | - | OpenAI API or Local LLM (like LM Studio). |
 
 ---
 
-## Quick Start
+## ⚡ Quick Start
 
-### Step 1: Clone/Navigate to Project
-
+### 1. Setup
 ```bash
-cd "path/to/project"
-```
-
-### Step 2: Create Virtual Environment
-
-```bash
-# Windows
+# Create and activate virtual environment
 python -m venv venv
-venv\Scripts\activate
+venv\Scripts\activate  # Windows
 
-# Linux/Mac
-python -m venv venv
-source venv/bin/activate
-```
-
-### Step 3: Install Dependencies
-
-```bash
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-### Step 4: Start the Server
-
-The system is pre-configured to run on **Port 8080**.
-
-**Option A (Recommended):**
-Run the startup script:
+### 2. Start the Server
+The system runs on **Port 8080** by default.
 ```bash
+# Using the startup script
 start_server.bat
-```
 
-**Option B (Manual):**
-```bash
+# Or manually
 python -m src.main
 ```
-(Do NOT use `uvicorn src.main:app` without arguments, as it defaults to port 8000).
 
-### Step 5: Verify Server is Running
-
+### 3. Build the Knowledge Graph
 ```bash
-curl http://localhost:8080/health
-```
-
-Expected response:
-```json
-{"status": "healthy", "version": "1.0.0", "timestamp": "..."}
-```
-
-### Step 6: Build the Knowledge Graph
-
-```bash
-# 1. Ingest data
+# 1. Ingest standards from local data
 curl -X POST http://localhost:8080/api/v1/ingest/local
 
-# 2. Wait for completion (check status)
-curl http://localhost:8080/api/v1/ingest/status/{job_id}
-
-# 3. Build graph (use job_id from step 1)
-curl -X POST http://localhost:8080/api/v1/graph/build \
-  -H "Content-Type: application/json" \
-  -d '{"ingestion_job_id": "{job_id}", "enable_structural_links": true, "enable_semantic_links": false, "enable_reference_links": true}'
+# 2. Build the graph (use job_id from Step 1)
+curl -X POST http://localhost:8080/api/v1/graph/build -d '{"ingestion_job_id": "{job_id}"}'
 ```
-
-### Step 7: Open the Query UI
-
-Open in browser: **http://localhost:8080/api/v1/visualization/query-ui**
 
 ---
 
-## Web Interfaces
+## 🌐 Web Interfaces
 
 | Interface | URL | Description |
 |-----------|-----|-------------|
-| **Query UI** | http://localhost:8080/api/v1/visualization/query-ui | Search and explore the knowledge graph |
-| **Interactive Graph** | http://localhost:8080/api/v1/visualization/interactive | D3.js graph visualization |
-| **Statistics Dashboard** | http://localhost:8080/api/v1/visualization/statistics-visual | Graph statistics with charts |
-| **Swagger API Docs** | http://localhost:8080/docs | Interactive API documentation |
-| **ReDoc** | http://localhost:8080/redoc | Alternative API documentation |
+| **Query UI** | http://localhost:8080/api/v1/visualization/query-ui | search, view, and export results. |
+| **Interactive Graph** | http://localhost:8080/api/v1/visualization/interactive | D3.js-powered visual document map. |
+| **Stats Dashboard** | http://localhost:8080/api/v1/visualization/statistics-visual | charts showing document distributions. |
+| **Swagger Docs** | http://localhost:8080/docs | Full interactive API documentation. |
 
 ### Query UI Features
-
-The Query UI (`/api/v1/visualization/query-ui`) provides:
-
-- **Query Parameters Panel**: Set component name, type, application, test level
-- **Test Category Selection**: Thermal, Mechanical, Environmental, Electrical, EMC, Durability
-- **Confidence Filter**: Slider to filter by minimum relevance score
-- **Three Tabs**:
-  - **Query Results**: View matching requirements with relevance scores
-  - **All Nodes**: Browse all nodes with search & filter
-  - **Graph View**: Mini D3.js visualization of results
-- **Export to Excel**: Generate DVP Excel from query results
+The Query UI is the primary human interface. It allows you to:
+- Filter by component name, type, and application.
+- Select specific test categories (Thermal, Mechanical, etc.).
+- Browse all document sections ("All Nodes").
+- View results in a mini graph viewer.
+- **Export to Excel** directly from the search results.
 
 ---
 
-## API Endpoints
-
-### Health & Status
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Server health check |
-| GET | `/docs` | Swagger API documentation |
+## 🔗 Detailed API Endpoints
 
 ### Data Ingestion
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/ingest/local` | Ingest from local `./data` directory |
-| POST | `/api/v1/ingest/external` | Ingest from external API |
-| POST | `/api/v1/ingest/upload` | Upload files directly |
-| GET | `/api/v1/ingest/status/{job_id}` | Check ingestion status |
+- `POST /api/v1/ingest/local`: Start loading files from the `./data` directory.
+- `GET /api/v1/ingest/status/{job_id}`: Track the progress of a file load job.
+- `GET /api/v1/ingest/list`: See all previous ingestion jobs.
 
 ### Graph Management
+- `POST /api/v1/graph/build`: Construct the knowledge graph linking all standards.
+- `GET /api/v1/graph/status/{job_id}`: Check the status of graph construction.
+- `GET /api/v1/graph/statistics`: Returns node/edge counts for the current graph.
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/graph/build` | Build knowledge graph |
-| GET | `/api/v1/graph/statistics` | Returns node/edge counts |
-| GET | `/api/v1/graph/export` | Exports the current graph to JSON/GEXF |
+### Search & Retrieval
+- `POST /api/v1/retrieval/query`: The core search engine. Supports keyword and semantic search.
+- `GET /api/v1/retrieval/explain/{query_id}`: Provides details on why specific results were found.
 
-### Retrieval & Search
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/retrieval/query` | **Core Search Function**. Query for requirements. |
-| GET | `/api/v1/retrieval/explain/{query_id}` | Explain retrieval results |
-
-### LLM Generation (Requires LLM)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/llm/generate` | Generate test procedures |
-| POST | `/api/v1/llm/generate-simple` | Simple single procedure generation |
-
-### DVP Document
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/dvp/generate` | Generate DVP Excel |
-| POST | `/api/v1/dvp/generate-ptp` | Generate PTP Word Document |
-| GET | `/api/v1/dvp/download/{dvp_id}` | Download DVP file |
+### Document Generation
+- `POST /api/v1/llm/generate`: Generates test cases from retrieved requirements.
+- `POST /api/v1/dvp/generate`: Creates the final Excel (DVP) or Word (PTP) report.
+- `GET /api/v1/dvp/download/{id}`: Download the generated report file.
 
 ---
 
-## Complete Workflow
-
-### Using cURL Commands
+## 🛠 Complete Workflow (cURL)
 
 ```bash
-# Step 1: Start the server
-python -m src.main
-
-# Step 2: Ingest data
+# Step 1: Ingest standards
 curl -X POST http://localhost:8080/api/v1/ingest/local
-# Response: {"job_id": "abc-123", "status": "pending", ...}
+# Expected: {"job_id": "job-123", "status": "pending"}
 
-# Step 3: Wait for ingestion (poll status)
-curl http://localhost:8080/api/v1/ingest/status/abc-123
-# Wait until status is "completed"
-
-# Step 4: Build knowledge graph
+# Step 2: Build Knowledge Graph
 curl -X POST http://localhost:8080/api/v1/graph/build \
   -H "Content-Type: application/json" \
-  -d '{
-    "ingestion_job_id": "abc-123",
-    "enable_structural_links": true,
-    "enable_semantic_links": false,
-    "enable_reference_links": true
-  }'
+  -d '{"ingestion_job_id": "job-123"}'
 
-# Step 5: Query the graph
+# Step 3: Query for Requirements
 curl -X POST http://localhost:8080/api/v1/retrieval/query \
   -H "Content-Type: application/json" \
   -d '{
-    "component_profile": {
-      "name": "LED Module",
-      "type": "LED Module",
-      "application": "automotive lighting",
-      "variants": ["High", "Low"],
-      "test_level": "PCB level",
-      "applicable_standards": ["ISO 16750"],
-      "test_categories": ["thermal", "electrical"],
-      "quantity_per_test": {"Sample": 5}
-    },
-    "retrieval_method": "hybrid",
-    "max_results": 20,
-    "min_confidence": 0.2
+    "component_profile": {"name": "LED"},
+    "test_categories": ["thermal"],
+    "max_results": 10
   }'
-
-# Step 6: Generate DVP Excel (with test cases from query)
-curl -X POST http://localhost:8080/api/v1/dvp/generate \
-  -H "Content-Type: application/json" \
-  -d '{
-    "component_profile": {...},
-    "test_cases": [...],
-    "output_format": "xlsx",
-    "include_traceability_sheet": true
-  }'
-
-# Step 7: Download DVP
-curl http://localhost:8080/api/v1/dvp/download/{dvp_id} --output DVP_Output.xlsx
 ```
-
-### Using the Query UI (Recommended)
-
-1. Open **http://localhost:8080/api/v1/visualization/query-ui**
-2. Fill in component details (name, type, application)
-3. Select test categories (thermal, mechanical, electrical, etc.)
-4. Adjust max results and confidence threshold
-5. Click **"Query Knowledge Graph"**
-6. Review results in the table
-7. Click **"Export to Excel"** to generate DVP
 
 ---
 
-## Configuration
+## ⚙️ Configuration
 
-Managed in `src/config.py`.
+Settings are managed in `src/config.py`.
 
-### Key Settings
-
-*   `PORT`: 8080
-*   `ENABLE_SEMANTIC_SEARCH`: `False` (Default) - Set to `True` for AI search.
-*   `ENABLE_RERANKING`: `True` (Default) - Enables Cross-Encoder for better results.
-
-### Environment Variables
-
-Create a `.env` file in the project root:
-
+### Environment Variables (.env)
 ```env
-# API Settings
-APP_NAME=Knowledge Graph API
-HOST=0.0.0.0
+# Server
 PORT=8080
 DEBUG=true
 
-# Data Paths
-DATA_DIR=./data
-GRAPH_STORAGE_PATH=./graph_data
-VECTOR_DB_PATH=./chroma_db
-OUTPUT_DIR=./output
-
-# LLM Configuration (Optional - for test procedure generation)
-OPENAI_API_KEY=not-needed
+# AI Settings (Optional)
 OPENAI_API_BASE=http://localhost:1234/v1
 OPENAI_MODEL=qwen/qwen3-vl-4b
-OPENAI_TEMPERATURE=0.2
-OPENAI_MAX_TOKENS=4096
-
-# Logging
-LOG_LEVEL=INFO
-LOG_FILE=./logs/app.log
+ENABLE_RERANKING=true
 ```
 
 ---
 
-## Local LLM Setup (Optional)
-
-The system supports local LLMs via OpenAI-compatible APIs (e.g., LM Studio).
-
-### Using LM Studio
-
-1. **Install LM Studio**: Download from https://lmstudio.ai/
-2. **Load a Model**: Download and load a model (e.g., `qwen/qwen3-vl-4b`)
-3. **Start Local Server**:
-   - Go to "Local Server" tab
-   - Set host to `0.0.0.0` (for network access)
-   - Start server on port `1234`
-4. **Update Config**: Set `openai_api_base` in `src/config.py`:
-   ```python
-   openai_api_base: str = "http://localhost:1234/v1"
-   ```
-
-### Verify LLM Connection
-
-```bash
-curl http://localhost:1234/v1/models
-```
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-| Issue | Solution |
-|-------|----------|
-| `Port 8080 already in use` | Kill existing process: `netstat -ano \| findstr :8080` then `taskkill //F //PID {pid}` |
-| `Knowledge graph not built` | Run ingestion and graph build before querying |
-| `No results found` | Lower the `min_confidence` threshold (try 0.1 or 0.2) |
-| `LLM connection failed` | Check LM Studio is running and accessible |
-| `ModuleNotFoundError` | Ensure virtual environment is activated |
-
-### Check Server Status
-
-```bash
-# Health check
-curl http://localhost:8080/health
-
-# Check if graph is built
-curl http://localhost:8080/api/v1/visualization/graph-data?max_nodes=5
-```
-
-### Clear and Restart
-
-```bash
-# Stop all Python processes
-taskkill //F //IM python.exe
-
-# Restart server
-python -m src.main
-```
-
----
-
-## Project Structure
-
+## 📁 Project Structure (v2.0)
 ```
 .
 ├── src/
-│   ├── api/v1/                 # API Endpoint Controllers
-│   │   ├── ingest.py           # Data Ingestion (JSON/PDF loading)
-│   │   ├── graph.py            # Graph Building & Management
-│   │   ├── retrieval.py        # Search & Context Retrieval
-│   │   ├── llm.py              # GenAI Test Generation
-│   │   ├── dvp.py              # DVP Excel/Word Export
-│   │   └── visualization.py    # Graph Viz & Statistics
-│   ├── core/
-│   │   ├── graph_builder.py    # Logic to build NetworkX graph
-│   │   ├── semantic_search.py  # Embeddings & Reranking Engine
-│   ├── models/                 # Pydantic Data Models
-│   ├── utils/                  # Helper scripts (startup.py)
-│   ├── config.py               # Application Configuration
-│   └── main.py                 # App Entry Point & Lifecycle
-├── data/
-│   ├── output_json_chunk/      # Source JSON documents (Standards)
-│   └── output_images/          # Extracted Images
-├── graph_data/                 # Serialized Graph (pkl/json)
-├── output/                     # Generated Reports (DVP Excel, PTP Docx)
-├── requirements.txt            # Python Dependencies
-└── start_server.bat            # Startup Script
+│   ├── api/v1/          # Endpoints (Ingest, Graph, LLM, DVP)
+│   ├── core/            # Logic (Graph Builder, Search Engine)
+│   ├── models/          # Data Models (Pydantic schemas)
+│   ├── utils/           # Utilities (Job Manager, Startup automation)
+│   └── main.py          # App Entry Point
+├── data/                # Your standards JSON documents
+├── graph_data/          # Saved Graph files (.pkl, .json)
+├── output/              # Generated reports (Excel, Word)
+└── requirements.txt     # Python packages
 ```
 
 ---
 
-**Knowledge Graph DVP Generation System v1.0.0**
+## 📋 Detailed Graph Information
+
+### Graph Statistics (Typical)
+| Metric | Value |
+|--------|-------|
+| Total Nodes | 1,200 - 5,000+ |
+| Standards | 3+ Main Documents |
+| Clauses | 500+ Sections |
+| Requirements | 500+ Statements |
+
+### Node Types
+| Type | Label | Description |
+|------|-------|-------------|
+| **Standard** | Red | Top-level document name (e.g., ISO-16750). |
+| **Clause** | Teal | Sections and subsections within a document. |
+| **Requirement**| Blue | Individual rules (statements containing "shall" or "should"). |
+| **External** | Orange| References to other external standards. |
+
+### Edge Types
+| Type | Description |
+|------|-------------|
+| **CONTAINS_CLAUSE** | Relates a Standard to its main Sections. |
+| **CONTAINS_REQ** | Relates a Clause to a specific Requirement. |
+| **REFERENCES** | Links between documents (e.g., Clause 1 refers to Standard B). |
+| **SIBLING_OF** | Connects chapters at the same document level. |
+
+---
+
+## 🧪 Test Categories
+
+The system uses intelligent keyword grouping to find relevant data:
+
+| Category | Typical Keywords |
+|----------|------------------|
+| **Thermal** | Temperature, heat, cold, thermal, heating. |
+| **Mechanical** | Vibration, shock, mechanical, force, drop. |
+| **Environmental**| Humidity, water, dust, salt, moisture. |
+| **Electrical** | Voltage, current, power, resistance, surge. |
+| **EMC** | Interference, emission, immunity, frequency. |
+| **Durability** | Life cycle, endurance, long-term, aging. |
+
+---
+
+## 📉 Generated DVP Structure (Excel)
+
+The system exports a professional 4-sheet report:
+
+1. **Annex B - DVP**: The main test matrix showing procedures and criteria.
+2. **Test Sequence**: Grouping of tests (EMC, Environmental, etc.).
+3. **Traceability Matrix**: Mapping every requirement to its specific test ID.
+4. **Source References**: Summary of all referenced clauses and standards used.
+
+---
+
+**Knowledge Graph DVP Generation System v2.0**

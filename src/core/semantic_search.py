@@ -39,15 +39,20 @@ class SemanticSearchEngine:
         Path(vector_db_path).mkdir(parents=True, exist_ok=True)
         self.chroma_client = chromadb.PersistentClient(path=vector_db_path)
 
-        # Collections
+        # Collections: try to load existing, handle 'not found' gracefully
         try:
             self.clause_collection = self.chroma_client.get_collection("clauses")
             self.requirement_collection = self.chroma_client.get_collection("requirements")
             logger.info(f"Loaded existing collections. Clauses: {self.clause_collection.count()}, Requirements: {self.requirement_collection.count()}")
-        except Exception:
+        except Exception as e:
+            # This is expected on first run when collections don't exist yet
+            err_str = str(e).lower()
+            if "does not exist" in err_str or "collection" in err_str:
+                logger.info("No existing ChromaDB collections found. Will be created on first indexing.")
+            else:
+                logger.error(f"Unexpected error loading ChromaDB collections: {e}")
             self.clause_collection = None
             self.requirement_collection = None
-            logger.info("No existing collections found.")
 
     def _set_determinism(self):
         """Set random seeds for reproducibility"""

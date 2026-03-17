@@ -13,6 +13,8 @@ from src.api.v1 import ingest, graph, retrieval, llm, dvp, visualization
 from loguru import logger
 import sys
 import os
+import time
+from fastapi import Request
 
 # Configure logging
 logger.remove()
@@ -65,21 +67,15 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="""
-    Knowledge Graph API for DVP (Design Verification Plan) Generation
-
-    ## Features
-    - Ingest standards documents from external APIs
-    - Build multi-layer knowledge graph with traceability
-    - Hybrid retrieval (semantic + graph traversal)
-    - LLM-powered test procedure generation
-    - Automated DVP document generation
-
-    ## Workflow
-    1. **Ingest**: Fetch standards from external source
-    2. **Build**: Create knowledge graph with links
-    3. **Retrieve**: Query relevant requirements
-    4. **Generate**: LLM synthesizes test procedures
-    5. **Export**: Generate Excel DVP document
+    ## AI Test Plan Generator
+    A professional module for automated PTP generation using Knowledge Graphs and LLMs.
+    
+    ### Core Capabilities:
+    - **Ingest**: Multi-source standards ingestion.
+    - **Graph**: Traceable Knowledge Graph construction.
+    - **Retrieve**: Semantic & Graph retrieval.
+    - **Generate**: AI-powered test procedure synthesis.
+    - **Export**: Professional Excel/DOCX PTP generation.
     """,
     lifespan=lifespan,
     docs_url="/docs",
@@ -94,6 +90,39 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Paths to exclude from access logging (high-frequency, low-value routes)
+_LOG_SKIP_PATHS = {"/health", "/docs", "/redoc", "/openapi.json", "/"}
+
+# API Request Logging Middleware
+@app.middleware("http")
+async def log_api_requests(request: Request, call_next):
+    """Log all API requests, their execution time, and status code."""
+    url_path = request.url.path
+
+    # Skip logging for noisy infrastructure endpoints
+    if url_path in _LOG_SKIP_PATHS:
+        return await call_next(request)
+
+    start_time = time.time()
+    client_ip = request.client.host if request.client else "Unknown"
+    method = request.method
+    
+    logger.info(f"API Request START | {client_ip} | {method} {url_path}")
+    
+    try:
+        response = await call_next(request)
+        process_time = (time.time() - start_time) * 1000  # Convert to ms
+        status_code = response.status_code
+        logger.info(f"API Request END   | {client_ip} | {method} {url_path} | Status: {status_code} | Latency: {process_time:.2f}ms")
+        
+        # Optionally add latency header to response
+        response.headers["X-Process-Time"] = f"{process_time:.2f}ms"
+        return response
+    except Exception as e:
+        process_time = (time.time() - start_time) * 1000
+        logger.error(f"API Request FAILED | {client_ip} | {method} {url_path} | Latency: {process_time:.2f}ms | Error: {str(e)}")
+        raise
 
 # Include routers
 app.include_router(
@@ -137,7 +166,8 @@ if os.path.exists(settings.input_images_dir):
 async def root():
     """API root endpoint"""
     return {
-        "message": "Knowledge Graph API for DVP Generation",
+        "status": "online",
+        "module": "ai-testplan-gen",
         "version": settings.app_version,
         "docs": "/docs",
         "health": "/health"

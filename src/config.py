@@ -11,10 +11,10 @@ class Settings(BaseSettings):
 
     # API Settings
     app_name: str = "Knowledge Graph API"
-    app_version: str = "1.0.0"
+    app_version: str = "2.0.0"
     host: str = "0.0.0.0"
     port: int = 8080
-    debug: bool = True
+    debug: bool = False  # Override via DEBUG=true in .env for development
 
     # External Data Source
     external_api_url: str = "https://api.example.com/standards"
@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     openai_max_tokens: int = 4096
 
     # Google Gemini Configuration
-    gemini_api_key: Optional[str] = ""
+    gemini_api_key: Optional[str] = None  # Set via GEMINI_API_KEY in .env
     gemini_model: str = "gemini-2.5-flash"
 
     # Database

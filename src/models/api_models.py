@@ -111,11 +111,12 @@ class RetrievalQueryRequest(BaseModel):
 
 class LLMGenerationRequest(BaseModel):
     """Request for LLM to generate test procedures"""
-    retrieved_context: List[Dict[str, Any]]
+    retrieved_context: List[Dict[str, Any]] = Field(default_factory=list)
     component_profile: ComponentProfileRequest
     generation_mode: str = Field(default="detailed", description="brief, detailed, comprehensive")
     generation_method: str = Field(default="llm", description="Method: 'llm' or 'deterministic'")
     include_traceability: bool = Field(default=True)
+    sync: bool = Field(default=True, description="Execute synchronously and return full data")
 
 class DVPGenerationRequest(BaseModel):
     """Request to generate complete DVP document"""
@@ -124,6 +125,7 @@ class DVPGenerationRequest(BaseModel):
     output_format: str = Field(default="xlsx", description="Output format: xlsx, json, pdf")
     include_traceability_sheet: bool = Field(default=True)
     include_visualization: bool = Field(default=False)
+    sync: bool = Field(default=True, description="Execute synchronously and return download url")
 
 # ==================== RESPONSE MODELS ====================
 
@@ -160,23 +162,23 @@ class LLMGenerationResponse(BaseModel):
     """Response from LLM generation endpoint"""
     job_id: str
     status: JobStatus
-    test_procedures: List[Dict[str, Any]]
-    acceptance_criteria: List[Dict[str, Any]]
-    tokens_used: int
-    generation_time_seconds: float
+    test_procedures: List[Dict[str, Any]] = Field(default_factory=list)
+    acceptance_criteria: List[Dict[str, Any]] = Field(default_factory=list)
+    tokens_used: int = 0
+    generation_time_seconds: float = 0.0
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 class DVPGenerationResponse(BaseModel):
     """Response from DVP generation endpoint"""
     job_id: str
-    dvp_id: str
+    dvp_id: str = ""
     status: JobStatus
     message: str
-    download_url: str
-    file_size_bytes: int
-    test_cases_count: int
-    requirements_covered: int
-    traceability_complete: bool
+    download_url: str = ""
+    file_size_bytes: int = 0
+    test_cases_count: int = 0
+    requirements_covered: int = 0
+    traceability_complete: bool = False
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 class JobStatusResponse(BaseModel):

@@ -38,20 +38,15 @@ async def query_knowledge_graph(request: RetrievalQueryRequest):
     if not graph_builder:
         # Try to auto-load if not loaded (basic recovery)
         try:
-            # Find latest graph
-            graph_dir = Path("graph_data")
-            if graph_dir.exists():
-                pkl_files = list(graph_dir.glob("*.pkl"))
-                if pkl_files:
-                    latest_graph = max(pkl_files, key=os.path.getctime)
-                    job_id = latest_graph.stem
-                    logger.info(f"Auto-loading graph {job_id} for retrieval...")
-                    
-                    # Await the load function
-                    await load_existing_graph(job_id)
-                    
-                    # Refresh references
-                    from src.api.v1.graph import graph_builder, search_engine
+            from src.utils.graph_loader import load_latest_graph
+            from src.core.graph_builder import KnowledgeGraphBuilder
+            existing_graph, version_name = load_latest_graph()
+            if existing_graph:
+                builder = KnowledgeGraphBuilder(existing_graph=existing_graph)
+                import src.api.v1.graph as graph_api
+                graph_api.graph_builder = builder
+                graph_builder = builder
+                logger.info(f"Auto-loaded graph '{version_name}' for retrieval.")
         except Exception as e:
             logger.warning(f"Could not auto-load graph: {e}")
 

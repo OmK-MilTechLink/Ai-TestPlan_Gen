@@ -22,8 +22,11 @@ class KnowledgeGraphBuilder:
         self.node_count = self.graph.number_of_nodes()
         self.edge_count = self.graph.number_of_edges()
         
-        # Provenance tracking
-        self.processed_files = set(self.graph.graph.get('processed_files', []))
+        # Provenance tracking: store as map of filename -> {size, mtime}
+        self.processed_files = self.graph.graph.get('processed_files', {})
+        if isinstance(self.processed_files, list):
+            # Migration from old list-based format to new map-based manifest
+            self.processed_files = {f: {"size": 0, "mtime": 0} for f in self.processed_files}
         
     def build_from_directory(self, data_path: str,
                             enable_structural: bool = True,
@@ -41,14 +44,27 @@ class KnowledgeGraphBuilder:
         json_files = sorted(list(data_dir.rglob("*.json")))
         total_files = len(json_files)
         
-        # Filter out already processed files
+        # Filter out already processed files using richer manifest (name, size, mtime)
         new_files = []
         for f in json_files:
-            rel_path = str(f.relative_to(data_dir))
-            # Standardize path separator
-            rel_path = rel_path.replace('\\', '/')
-            if rel_path not in self.processed_files:
-                new_files.append(f)
+            try:
+                stat = f.stat()
+                file_size = stat.st_size
+                file_mtime = stat.st_mtime
+                # Use relative path as the unique key (avoids filename collisions across subdirectories)
+                rel_path = str(f.relative_to(data_dir)).replace('\\', '/')
+                
+                is_new = True
+                if rel_path in self.processed_files:
+                    manifest = self.processed_files[rel_path]
+                    if manifest.get("size") == file_size and manifest.get("mtime") == file_mtime:
+                        is_new = False
+                
+                if is_new:
+                    new_files.append((f, rel_path, file_size, file_mtime))
+            except Exception as e:
+                logger.warning(f"Failed to stat {f}: {e}")
+                continue
         
         logger.info(f"Found {total_files} files. New files to process: {len(new_files)}")
         
@@ -59,16 +75,19 @@ class KnowledgeGraphBuilder:
             return stats
 
         documents = []
-        for idx, json_file in enumerate(new_files):
+        for idx, (json_file, rel_path, file_size, file_mtime) in enumerate(new_files):
             if idx % 100 == 0:
                 logger.info(f"Processing file {idx}/{len(new_files)}: {json_file.name}")
             try:
                 with open(json_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    rel_path = str(json_file.relative_to(data_dir)).replace('\\', '/')
                     data['_source_file'] = rel_path
                     documents.append(data)
-                    self.processed_files.add(rel_path)
+                    # Update manifest using relative path as unique key
+                    self.processed_files[rel_path] = {
+                        "size": file_size,
+                        "mtime": file_mtime,
+                    }
             except Exception as e:
                 logger.warning(f"Failed to load {json_file}: {e}")
                 continue
@@ -79,19 +98,21 @@ class KnowledgeGraphBuilder:
         logger.info("Phase 1: Creating nodes...")
         self._create_nodes(documents)
 
-        # Phase 2: Create structural links (only for new docs or all? Structural are local, so safe for new)
+        # Phase 2: Create structural links
         if enable_structural:
             logger.info("Phase 2: Creating structural links...")
             self._create_structural_links()
 
-        # Phase 3: Create reference links (might link to existing nodes)
+        # Phase 3: Create reference links
         if enable_reference:
             logger.info("Phase 3: Creating reference links...")
             self._create_reference_links()
             
         # Update metadata
-        self.graph.graph['processed_files'] = list(self.processed_files)
+        self.graph.graph['processed_files'] = self.processed_files
         self.graph.graph['last_updated'] = datetime.utcnow().isoformat()
+        # Increment version number each time new data is merged
+        self.graph.graph['graph_version'] = self.graph.graph.get('graph_version', 0) + 1
 
         # Compute graph statistics
         stats = self._compute_statistics()
@@ -403,8 +424,14 @@ class KnowledgeGraphBuilder:
 
         self.node_count = self.graph.number_of_nodes()
         self.edge_count = self.graph.number_of_edges()
+        
+        # Restore manifest
+        self.processed_files = self.graph.graph.get('processed_files', {})
+        if isinstance(self.processed_files, list):
+            # Migration
+            self.processed_files = {f: {"size": 0, "mtime": 0} for f in self.processed_files}
 
-        logger.info(f"Graph loaded: {self.node_count} nodes, {self.edge_count} edges")
+        logger.info(f"Graph loaded: {self.node_count} nodes, {self.edge_count} edges. Processed files: {len(self.processed_files)}")
 
     def get_statistics(self) -> Dict[str, Any]:
         """
