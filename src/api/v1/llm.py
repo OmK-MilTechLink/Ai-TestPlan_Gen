@@ -95,6 +95,29 @@ async def process_llm_generation(job_id: str, request: LLMGenerationRequest) -> 
 
         # Process up to 15 items
         results_to_process = results_to_process[:15]
+
+        # --- Save retrieved context to temp for debugging/audit ---
+        try:
+            import json as _json
+            from datetime import datetime as _dt
+            _temp_dir = Path(settings.temp_dir)
+            _temp_dir.mkdir(parents=True, exist_ok=True)
+            _ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+            _ctx_file = _temp_dir / f"kg_context_{job_id}_{_ts}.txt"
+            with open(_ctx_file, "w", encoding="utf-8") as _f:
+                _f.write(f"Job ID      : {job_id}\n")
+                _f.write(f"Timestamp   : {_ts}\n")
+                _f.write(f"Total Nodes : {len(results_to_process)}\n")
+                _f.write("=" * 80 + "\n\n")
+                for _i, _node in enumerate(results_to_process, 1):
+                    _f.write(f"--- Node {_i} ---\n")
+                    _f.write(_json.dumps(_node, indent=2, ensure_ascii=False, default=str))
+                    _f.write("\n\n")
+            logger.info(f"Saved {len(results_to_process)} KG context nodes → {_ctx_file}")
+        except Exception as _e:
+            logger.warning(f"Could not save KG context to temp: {_e}")
+        # ----------------------------------------------------------
+
         chunk_size = 5
         all_test_procedures = []
         all_acceptance_criteria = []
@@ -120,11 +143,17 @@ async def process_llm_generation(job_id: str, request: LLMGenerationRequest) -> 
             chunk_content = ""
             for attempt in range(3):  # Max retries
                 try:
+                    SLM_SYSTEM_MSG = (
+                        "You are a JSON generator. "
+                        "Output ONLY a valid JSON array []. "
+                        "NO explanations. NO markdown. NO comments. NO extra text before or after the JSON. "
+                        "Use ONLY the data provided. Do NOT add any values not present in the input."
+                    )
                     if settings.llm_provider == "gemini":
                         response = client.models.generate_content(
                             model=settings.gemini_model,
-                            contents=f"System: You are an expert automotive test engineer. Return a JSON List of objects only.\n\nUser: {prompt}",
-                            config={'temperature': settings.openai_temperature, 'max_output_tokens': 8192}
+                            contents=f"System: {SLM_SYSTEM_MSG}\n\nUser: {prompt}",
+                            config={'temperature': 0.1, 'max_output_tokens': 4096}
                         )
                         chunk_content = response.text
                         total_tokens += getattr(response, 'usage_metadata', None).total_token_count if getattr(response, 'usage_metadata', None) else 0
@@ -132,14 +161,14 @@ async def process_llm_generation(job_id: str, request: LLMGenerationRequest) -> 
                         response = client.chat.completions.create(
                             model=settings.openai_model,
                             messages=[
-                                {"role": "system", "content": "You are an expert automotive test engineer. Return a JSON List of objects only."},
+                                {"role": "system", "content": SLM_SYSTEM_MSG},
                                 {"role": "user", "content": prompt}
                             ],
-                            temperature=settings.openai_temperature,
-                            max_tokens=8192
+                            temperature=0.1,
+                            max_tokens=4096
                         )
-                        chunk_content = response.choices[0].message.content
-                        total_tokens += response.usage.total_tokens
+                        chunk_content = response.choices[0].message.content if response.choices else ""
+                        total_tokens += response.usage.total_tokens if response.usage else 0
                     break
                 except Exception as e:
                     if "429" in str(e) or "quota" in str(e):
@@ -151,11 +180,20 @@ async def process_llm_generation(job_id: str, request: LLMGenerationRequest) -> 
             # Parse Chunk Response
             try:
                 current_procedures = []
-                json_match = re.search(r'\[[\s\S]*\]', chunk_content)
-                if json_match:
-                    current_procedures = json.loads(json_match.group())
+                # Find ALL JSON arrays in the output (some SLMs output two blobs)
+                for json_match in re.finditer(r'\[[\s\S]*?\]', chunk_content):
+                    try:
+                        parsed = json.loads(json_match.group())
+                        if isinstance(parsed, list) and len(parsed) > 0:
+                            current_procedures = parsed
+                            break  # Use first non-empty array
+                    except json.JSONDecodeError:
+                        continue  # Try next match
                 
                 for k, proc in enumerate(current_procedures):
+                    if not isinstance(proc, dict):
+                        continue
+                        
                     if 'traceability' not in proc: proc['traceability'] = {}
                     
                     source_req = None
@@ -222,93 +260,6 @@ async def process_llm_generation(job_id: str, request: LLMGenerationRequest) -> 
         job_manager.update_job(job_id, status=JMStatus.FAILED, error=str(e))
         raise e
 
-async def process_deterministic_generation(job_id: str, request: LLMGenerationRequest) -> Dict[str, Any]:
-    """
-    Generates test plan deterministically (without LLM) using KG results directly.
-    """
-    try:
-        job_manager.update_job(job_id, status=JMStatus.PROCESSING, current_step='Retrieving requirements', progress=10.0)
-
-        results = request.retrieved_context or []
-        if not results:
-            from src.api.v1.retrieval import query_knowledge_graph
-            query_str = f"Test requirements for {request.component_profile.name} {request.component_profile.type}."
-            response = await query_knowledge_graph(RetrievalQueryRequest(
-                query_text=query_str, n_results=50, min_confidence=0.4, 
-                include_metadata=True, component_profile=request.component_profile.model_dump()
-            ))
-            results = response.results
-            
-        if not results:
-            error_msg = "No relevant requirements found"
-            job_manager.update_job(job_id, status=JMStatus.FAILED, error=error_msg)
-            raise Exception(error_msg)
-
-        results_to_process = results[:15]
-        test_procedures = []
-        acceptance_criteria = []
-
-        for idx, result in enumerate(results_to_process):
-            req_text = result.get('text', '')
-            source_meta = result.get('metadata', {})
-            req_id = source_meta.get('source_clause', result.get('node_id', f'REQ_{idx}'))
-            
-            procedure_data = {
-                "test_name": f"Test for {req_id}",
-                "test_description": req_text[:200] + "..." if len(req_text) > 200 else req_text,
-                "detailed_procedure": [
-                    f"1. Setup the {request.component_profile.name} in the test chamber.",
-                    f"2. Configure test parameters according to {req_id}.",
-                    f"3. Verify: {req_text}",
-                    "4. Record observations and measurements."
-                ],
-                "acceptance_criteria": f"Must comply with {req_id}",
-                "source_requirement": req_id,
-                "confidence_score": result.get('relevance_score', 0.0),
-                "traceability": {
-                    "requirement_id": req_id,
-                    "source_clause": source_meta.get('source_clause', ''),
-                    "source_standard": source_meta.get('source_standard', '')
-                },
-                "figures": result.get('figures', [])
-            }
-            test_procedures.append(procedure_data)
-            acceptance_criteria.append({
-                'criteria_id': f"AC_{idx+1}", 'test_id': f"B{idx+1}",
-                'criteria_text': procedure_data['acceptance_criteria'],
-                'source_requirement': req_id
-            })
-
-        result_payload = {
-            'test_procedures': test_procedures,
-            'acceptance_criteria': acceptance_criteria,
-            'tokens_used': 0,
-            'procedures_generated': len(test_procedures),
-            'component_profile': request.component_profile.model_dump()
-        }
-        
-        # Save DOCX
-        try:
-            from src.api.v1.dvp import PTPGenerator
-            generator = PTPGenerator()
-            output_path = generator.generate_ptp_docx(
-                component_profile=request.component_profile.model_dump(),
-                test_cases=test_procedures,
-                include_traceability=request.include_traceability
-            )
-            result_payload['download_url'] = f"/static/output/{Path(output_path).name}"
-            result_payload['file_name'] = Path(output_path).name
-        except Exception as docx_err:
-            logger.warning(f"DOCX save failed: {docx_err}")
-
-        job_manager.update_job(job_id, status=JMStatus.COMPLETED, result=result_payload)
-        return result_payload
-
-    except Exception as e:
-        logger.exception(f"Deterministic Job {job_id} failed: {e}")
-        job_manager.update_job(job_id, status=JMStatus.FAILED, error=str(e))
-        raise e
-
 @router.post("/generate", response_model=LLMGenerationResponse)
 async def generate_test_procedures(request: LLMGenerationRequest, background_tasks: BackgroundTasks):
     """**Generate Test Procedures with LLM**"""
@@ -316,10 +267,7 @@ async def generate_test_procedures(request: LLMGenerationRequest, background_tas
     
     if request.sync:
         try:
-            if getattr(request, 'generation_method', 'llm') == 'deterministic':
-                result = await process_deterministic_generation(job_id, request)
-            else:
-                result = await process_llm_generation(job_id, request)
+            result = await process_llm_generation(job_id, request)
                 
             return LLMGenerationResponse(
                 job_id=job_id,
@@ -332,11 +280,7 @@ async def generate_test_procedures(request: LLMGenerationRequest, background_tas
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
     else:
-        if getattr(request, 'generation_method', 'llm') == 'deterministic':
-            background_tasks.add_task(process_deterministic_generation, job_id, request)
-        else:
-            background_tasks.add_task(process_llm_generation, job_id, request)
-
+        background_tasks.add_task(process_llm_generation, job_id, request)
         return LLMGenerationResponse(job_id=job_id, status=JobStatus.PENDING, timestamp=datetime.utcnow())
 
 @router.get("/status/{job_id}", response_model=JobStatusResponse)

@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     external_api_key: Optional[str] = None
 
     # LLM Configuration
-    llm_provider: str = "gemini"  # "openai" or "gemini"
+    llm_provider: str = "openai"  # "openai" or "gemini"
     openai_api_key: Optional[str] = ""  # Local model doesn't need key
     openai_api_base: str = ""  # Any LLM server
     openai_model: Optional[str] = ""  # Any Local or API model
@@ -42,7 +42,6 @@ class Settings(BaseSettings):
     def project_root(self) -> Path:
         return Path(__file__).resolve().parent.parent
 
-    upload_dir: str = "./uploads"
     output_dir: str = "./output"
     temp_dir: str = "./temp"
     data_dir: str = "./data"
@@ -97,7 +96,6 @@ settings = Settings()
 def create_directories():
     """Create required directories if they don't exist"""
     dirs = [
-        settings.upload_dir,
         settings.output_dir,
         settings.temp_dir,
         settings.data_dir,

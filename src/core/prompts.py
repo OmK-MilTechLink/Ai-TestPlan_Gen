@@ -5,12 +5,18 @@ from typing import List, Dict, Any
 import json
 
 def get_test_procedure_prompt(requirement: Dict[str, Any],
-                              component_profile: Dict[str, Any]) -> str:
+                                component_profile: Dict[str, Any]) -> str:
     """
     Generate prompt for test procedure creation
     """
-    return f"""You are a test engineer creating a Product Testing Plan (PTP) for automotive components.
+    return f"""You are a Senior Automotive Test Engineering Expert. Your task is to create a professional, industry-standard Design Verification Plan (DVP) test procedure based STRICTLY on the provided requirement.
 
+CRITICAL RULES - NO HALLUCINATION:
+1. You must ONLY use the information provided in the "Requirement Information" and "Component Specifications" sections.
+2. Do NOT invent, assume, or hallucinate test parameters (like exact temperatures, voltages, times) if they are not explicitly mentioned in the provided text. If a parameter is missing, use "As specified in component manifest" or "Ambient".
+3. The procedure must be a highly detailed, step-by-step technical instruction suitable for a laboratory technician.
+
+--- INPUT DATA ---
 Component Under Test:
 - Name: {component_profile.get('name', 'Component')}
 - Type: {component_profile.get('type', 'Unknown')}
@@ -18,79 +24,93 @@ Component Under Test:
 - Test Level: {component_profile.get('test_level', 'Unknown')}
 - Specifications: {json.dumps(component_profile.get('specifications', {}), indent=2)}
 
-Requirement Information:
+Requirement Information (Source of Truth):
 {json.dumps(requirement, indent=2)}
+------------------
 
 Task:
-1. Carefully compare the Component Specifications with the given Requirement Information.
-2. Based on this comparison, determine how relevant the requirement is to the component (High, Medium, or Low). Provide this score and a one-line justification inside the 'traceability' object.
-3. Based on this requirement, generate a detailed test procedure in the following JSON format:
+1. Analyze the Requirement Information against the Component Specifications.
+2. Determine relevance (High, Medium, Low) and provide a concise justification.
+3. Generate the test procedure in the exact JSON format below.
+
+Output JSON Format Required:
 {{
-    "test_name": "Brief descriptive name (e.g., Operation at Low Temperature)",
-    "test_description": "1-2 sentence description",
-    "test_standard": "Source standard (e.g., ISO 16750-4)",
-    "detailed_procedure": "Step-by-step test procedure with specific parameters. Include temperature, duration, operating mode, etc.",
+    "test_name": "Specific technical name (e.g., Cold Temperature Operational Test)",
+    "test_description": "Precise engineering description of the test objective.",
+    "test_standard": "The exact source document ID or standard name from the requirement context.",
+    "detailed_procedure": "Step 1: Set chamber to X°C. Step 2: Soak for Y hours. Step 3: Power up component at Z Volts. Step 4...",
     "test_parameters": {{
-        "temperature": "value if applicable",
-        "duration": "value if applicable",
-        "cycles": "value if applicable"
+        "temperature": "Extracted value or 'Ambient'",
+        "duration": "Extracted value or 'Standard duration'",
+        "voltage": "Extracted value or 'Nominal'"
     }},
-    "operating_mode": "Operating mode description if applicable",
-    "acceptance_criteria": "Clear pass/fail criteria based on requirement",
-    "estimated_days": 5,
+    "operating_mode": "E.g., Powered ON, Sleep state, Unpowered",
+    "acceptance_criteria": "Exact passing criteria derived directly from the requirement text. E.g., 'Device must remain functional with no parameter drift > 5%.'",
+    "estimated_days": 1,
     "traceability": {{
         "requirement_id": "{requirement.get('requirement_id', '')}",
         "source_clause": "{requirement.get('clause_id', '')}",
         "source_standard": "{requirement.get('document_id', '')}",
-        "confidence_reasoning": "A one-line explanation of why this requirement is relevant to the component",
-        "relevance_score": "High, Medium, or Low"
+        "confidence_reasoning": "Why this specific test validates this specific requirement for this component.",
+        "relevance_score": "High"
     }}
-}}
-
-Generate a realistic and detailed test procedure that follows automotive industry standards."""
+}}"""
 
 def get_batch_test_procedure_prompt(requirements: List[Dict[str, Any]],
                                     component_profile: Dict[str, Any]) -> str:
     """
-    Generate prompt for BATCH test procedure creation
+    Generate SLM-safe prompt for BATCH test procedure creation.
+    Designed to work with small local models (phi4, nanobeige, etc.)
     """
     req_texts = []
     for i, req in enumerate(requirements):
-        text = req.get('text', '')[:500]  # Truncate massive requirements
+        text = req.get('text', '')[:600]  # Tighter limit for small context windows
         req_id = req.get('requirement_id', req.get('node_id', f'REQ_{i}'))
-        req_texts.append(f"Requirement {i+1} (ID: {req_id}): {text}")
-        
+        meta = req.get('metadata', {})
+        src = meta.get('source_standard', '')
+        clause = meta.get('source_clause', '')
+        req_texts.append(f"[{i+1}] ID={req_id} | Src={src} Clause={clause}\n{text}")
+
     compiled_requirements = "\n\n".join(req_texts)
+    specs_str = json.dumps(component_profile.get('specifications', {}), indent=2)
 
-    return f"""You are a test engineer creating a Product Testing Plan (PTP).
+    return f"""INSTRUCTION: Output ONLY a valid JSON array. No markdown. No explanation. No text before or after [].
 
-Component: {component_profile.get('name')}
+COMPONENT:
+Name: {component_profile.get('name')}
 Type: {component_profile.get('type')}
-Specs: {json.dumps(component_profile.get('specifications', {}), indent=2)}
+Specs: {specs_str}
 
-Requirements to Test:
+REQUIREMENTS:
 {compiled_requirements}
 
-Task:
-1. Generate a list of {len(requirements)} test procedures (one for each requirement) in valid JSON format.
-2. Carefully compare the Component Specs with each Requirement. Based on this comparison, assign a "relevance_score" (High, Medium, or Low) evaluating the requirement's applicability to the component's parameters.
-3. IMPORTANT: You must generate a test procedure for EVERY requirement provided. Do not skip any.
-4. The output must be a JSON Array of objects.
+CRITICAL ENGINEERING RULES:
+- Base ALL test steps, parameters, and criteria STRICTLY on the requirements text.
+- Do NOT make up specific test temperatures, voltages, vibrations, or timings if they are missing. Use "As specified" or "Generic functional check" if unspecified.
+- Generate exactly {len(requirements)} JSON objects, one per requirement above.
+- The "source_requirement" field MUST match the ID above exactly.
+- Output MUST be a JSON array of exactly {len(requirements)} objects.
 
-Each object must have:
-- "test_name"
-- "test_description"
-- "detailed_procedure" (List of strings)
-- "acceptance_criteria"
-- "source_requirement" (Must match the ID provided above)
-- "traceability": {{ "requirement_id": "...", "source_standard": "...", "confidence_reasoning": "One line explanation of relevance", "relevance_score": "High/Medium/Low" }}
-
-Example Response Format:
+OUTPUT FORMAT (copy structure exactly):
 [
   {{
-    "test_name": "...",
-    "source_requirement": "REQ_001",
-    ...
+    "test_name": "Specific technical test name",
+    "test_description": "Precise engineering description of the test objective.",
+    "detailed_procedure": [
+      "Step 1: Highly descriptive setup instruction...",
+      "Step 2: Apply parameter X...",
+      "Step 3: Monitor for Y..."
+    ],
+    "acceptance_criteria": "Exact passing criteria derived directly from the text.",
+    "source_requirement": "EXACT_ID_FROM_ABOVE",
+    "traceability": {{
+      "source_standard": "from metadata",
+      "confidence_reasoning": "Why this specific test proves compliance",
+      "relevance_score": "High"
+    }}
   }}
 ]
+
+BEGIN JSON OUTPUT:
 """
+
