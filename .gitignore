@@ -36,3 +36,4 @@ temp_*.json
 *.db
 *.sqlite
 *.sqlite3
+chroma_db/chroma.sqlite3
